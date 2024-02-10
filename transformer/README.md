@@ -15,6 +15,6 @@ cp -r ted_hrlr_translate ~/tensorflow_datasets
 
 ```c
 workon py38
-pip install tensorflow_datasets
+pip install tensorflow-datasets==4.8.3
 python main.py
 ```

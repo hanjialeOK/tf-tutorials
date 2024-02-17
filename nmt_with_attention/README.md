@@ -13,6 +13,7 @@ unzip spa-eng.zip
 
 ```c
 workon py38
+pip install tensorflow-addons==0.19.0
 pip install scikit-learn
 python train.py
 ```

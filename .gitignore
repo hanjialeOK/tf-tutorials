@@ -1,3 +1,4 @@
 __pycache__
 *.zip
-training_checkpoints
+training_checkpoints*
+*.png

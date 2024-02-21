@@ -15,7 +15,7 @@ class Encoder(tf.keras.Model):
         )
         self.rnn_cells = tf.keras.layers.StackedRNNCells(
             [
-                tf.keras.layers.LSTMCell(
+                tfa.rnn.LayerNormLSTMCell(
                     enc_units,
                     # recurrent_initializer="glorot_uniform",
                     dropout=dropout,
@@ -202,7 +202,7 @@ class Decoder2(tf.keras.Model):
         )
         self.dropout = tf.keras.layers.Dropout(self.dropout_rate)
         self.cells = [
-            tf.keras.layers.LSTMCell(
+            tfa.rnn.LayerNormLSTMCell(
                 dec_units,
             )
             for _ in range(num_layers)
@@ -239,7 +239,8 @@ class Decoder2(tf.keras.Model):
 
         # feed input
         # [batch, embedding_dim + depth]
-        inputs = self.add([inputs, hidden])
+        # inputs = self.add([inputs, hidden])
+        # inputs = tf.concat([inputs, hidden], axis=-1)
 
         new_states = []
         # output: [batch, depth]

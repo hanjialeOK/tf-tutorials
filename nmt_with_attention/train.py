@@ -89,7 +89,7 @@ def preprocess_sentence(w):
 
     # 给句子加上开始和结束标记
     # 以便模型知道何时开始和结束预测
-    w = "[START] " + w + " [END]"
+    w = "[start] " + w + " [end]"
     return w
 
 
@@ -128,8 +128,8 @@ print(preprocess_sentence(sp_sentence).encode("utf-8"))
 print()
 
 # 尝试实验不同大小的数据集
-# num_examples = None
-num_examples = 80000
+num_examples = None
+# num_examples = 80000
 target_raw, context_raw = load_data(path_to_file, num_examples)
 print(target_raw[-1])
 print(context_raw[-1])
@@ -161,7 +161,7 @@ print()
 
 def tokenize(lang):
     lang_tokenizer = tf.keras.preprocessing.text.Tokenizer(
-        filters="", lower=False, oov_token="[UNK]"
+        filters="", oov_token="[unk]"
     )
     lang_tokenizer.fit_on_texts(lang)
 
@@ -180,24 +180,18 @@ print(input_tensor[:5])
 print(target_tensor[:5])
 print()
 
-total_size = input_tensor.shape[0]
-train_size = int(total_size * 0.8) // 128 * 128
-val_size = total_size - train_size
-
-# test1 = tf.data.Dataset.from_tensor_slices((input_ragged_tensor, target_ragged_tensor))
-input_tensor_train, input_tensor_val = tf.split(
-    tf.random.shuffle(input_tensor), [train_size, val_size], axis=0
+# 采用 80 - 20 的比例切分训练集和验证集
+input_tensor_train, input_tensor_val, target_tensor_train, target_tensor_val = (
+    train_test_split(input_tensor, target_tensor, test_size=0.2)
 )
+total_size = input_tensor.shape[0]
+train_size = input_tensor_train.shape[0]
+val_size = input_tensor_val.shape[0]
+
 input_tensor_train = tf.RaggedTensor.from_tensor(input_tensor_train, padding=0)
 input_tensor_val = tf.RaggedTensor.from_tensor(input_tensor_val, padding=0)
-target_tensor_train, target_tensor_val = tf.split(
-    tf.random.shuffle(target_tensor), [train_size, val_size], axis=0
-)
 target_tensor_train = tf.RaggedTensor.from_tensor(target_tensor_train, padding=0)
 target_tensor_val = tf.RaggedTensor.from_tensor(target_tensor_val, padding=0)
-# input_tensor_train, input_tensor_val, target_tensor_train, target_tensor_val = (
-#     train_test_split(input_ragged_tensor, target_ragged_tensor, test_size=0.2)
-# )
 
 train_ds = tf.data.Dataset.from_tensor_slices(
     (input_tensor_train, target_tensor_train)
@@ -227,7 +221,7 @@ print("done")
 #     # Strip whitespace.
 #     text = tf.strings.strip(text)
 
-#     text = tf.strings.join(["[START]", text, "[END]"], separator=" ")
+#     text = tf.strings.join(["[start]", text, "[end]"], separator=" ")
 #     return text
 
 # example_text = tf.constant("¿Todavía está en casa?")
@@ -264,15 +258,15 @@ print("done")
 # print(" ".join(target_words))
 # print()
 
-# context_start_id = tf.constant(context_vocab.tolist().index("[START]"), dtype=tf.int64)
-# context_end_id = tf.constant(context_vocab.tolist().index("[END]"), dtype=tf.int64)
-# target_start_id = tf.constant(target_vocab.tolist().index("[START]"), dtype=tf.int64)
-# target_end_id = tf.constant(target_vocab.tolist().index("[END]"), dtype=tf.int64)
+# context_start_id = tf.constant(context_vocab.tolist().index("[start]"), dtype=tf.int64)
+# context_end_id = tf.constant(context_vocab.tolist().index("[end]"), dtype=tf.int64)
+# target_start_id = tf.constant(target_vocab.tolist().index("[start]"), dtype=tf.int64)
+# target_end_id = tf.constant(target_vocab.tolist().index("[end]"), dtype=tf.int64)
 
-context_start_id = tf.constant(inp_lang_tokenizer.word_index["[START]"], dtype=tf.int64)
-context_end_id = tf.constant(inp_lang_tokenizer.word_index["[END]"], dtype=tf.int64)
-target_start_id = tf.constant(targ_lang_tokenizer.word_index["[START]"], dtype=tf.int64)
-target_end_id = tf.constant(targ_lang_tokenizer.word_index["[END]"], dtype=tf.int64)
+context_start_id = tf.constant(inp_lang_tokenizer.word_index["[start]"], dtype=tf.int64)
+context_end_id = tf.constant(inp_lang_tokenizer.word_index["[end]"], dtype=tf.int64)
+target_start_id = tf.constant(targ_lang_tokenizer.word_index["[start]"], dtype=tf.int64)
+target_end_id = tf.constant(targ_lang_tokenizer.word_index["[end]"], dtype=tf.int64)
 
 # plt.subplot(1, 2, 1)
 # # to_tensor 会把 ragged tensor 按最大长度补零对齐为 tensor
@@ -435,7 +429,11 @@ example_input_batch, example_target_in_batch, example_target_out_batch = next(
     iter(train_ds)
 )
 print(example_input_batch.shape)
-print(example_target_in_batch.shape)
+print(example_input_batch[:3])
+print(inp_lang_tokenizer.sequences_to_texts(example_input_batch.numpy())[:3])
+print(example_target_out_batch.shape)
+print(example_target_out_batch[:3])
+print(targ_lang_tokenizer.sequences_to_texts(example_target_out_batch.numpy())[:3])
 print()
 
 max_inp_len = 0
@@ -543,8 +541,8 @@ def masked_acc(y_true, y_pred):
 
 
 def split(x):
-    # x = x[len("[START]") :]
-    x, _, _ = x.partition("[END]")
+    # x = x[len("[start]") :]
+    x, _, _ = x.partition("[end]")
     return x.rstrip().strip().split()
 
 
@@ -580,7 +578,7 @@ def train_step(inp, targ_in, targ_out):
         dec_states = decoder.get_initial_state(batch_size=inp.shape[0])
         # 教师强制 - 将目标词作为下一个输入
         for t in range(targ_in.shape[1]):
-            # 使用教师强制，第一个词为 [START]
+            # 使用教师强制，第一个词为 [start]
             dec_input = tf.expand_dims(targ_in[:, t], 1)
 
             # 将编码器输出 （enc_output） 传送至解码器
@@ -608,7 +606,7 @@ def evaluate(inp, targ_in):
 
     dec_hidden = enc_hidden
     dec_states = decoder.get_initial_state(batch_size=inp.shape[0])
-    # [batch_size, 1]，第一个词是 [START]
+    # [batch_size, 1]，第一个词是 [start]
     dec_input = tf.constant(
         value=target_start_id, shape=(inp.shape[0], 1), dtype=tf.int64
     )
@@ -639,7 +637,7 @@ def inference(inp):
     dec_hidden = enc_hidden
 
     dec_states = decoder.get_initial_state(batch_size=inp.shape[0])
-    # [batch_size, 1]，第一个词是 [START]
+    # [batch_size, 1]，第一个词是 [start]
     dec_input = tf.constant(value=target_start_id, shape=(1, 1), dtype=tf.int64)
     for t in range(max_length_targ):
         logits, dec_states, dec_hidden, attention_weights = decoder(

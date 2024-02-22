@@ -174,6 +174,8 @@ def tokenize(lang):
 
 input_tensor, inp_lang_tokenizer = tokenize(context_raw)
 target_tensor, targ_lang_tokenizer = tokenize(target_raw)
+print(list(inp_lang_tokenizer.word_index.items())[:10])
+print(list(targ_lang_tokenizer.word_index.items())[:10])
 print(input_tensor[:5])
 print(target_tensor[:5])
 print()

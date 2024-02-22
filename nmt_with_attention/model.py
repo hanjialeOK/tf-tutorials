@@ -11,7 +11,7 @@ class Encoder(tf.keras.Model):
         self.batch_sz = batch_sz
         self.enc_units = enc_units
         self.embedding = tf.keras.layers.Embedding(
-            vocab_size, embedding_dim, mask_zero=False
+            vocab_size, embedding_dim, mask_zero=True
         )
         self.rnn_cells = tf.keras.layers.StackedRNNCells(
             [
@@ -125,7 +125,7 @@ class Decoder(tf.keras.Model):
         self.batch_sz = batch_sz
         self.dec_units = dec_units
         self.embedding = tf.keras.layers.Embedding(
-            vocab_size, embedding_dim, mask_zero=False
+            vocab_size, embedding_dim, mask_zero=True
         )
         self.rnn_cells = tf.keras.layers.StackedRNNCells(
             [
@@ -198,7 +198,7 @@ class Decoder2(tf.keras.Model):
         self.dec_units = dec_units
         self.dropout_rate = dropout
         self.embedding = tf.keras.layers.Embedding(
-            vocab_size, embedding_dim, mask_zero=False
+            vocab_size, embedding_dim, mask_zero=True
         )
         self.dropout = tf.keras.layers.Dropout(self.dropout_rate)
         self.cells = [
@@ -286,7 +286,7 @@ class Decoder3(tf.keras.Model):
         self.dec_units = dec_units
         self.dropout = dropout
         self.embedding = tf.keras.layers.Embedding(
-            vocab_size, embedding_dim, mask_zero=False
+            vocab_size, embedding_dim, mask_zero=True
         )
         self.stacked_cell = tf.keras.layers.StackedRNNCells(
             [

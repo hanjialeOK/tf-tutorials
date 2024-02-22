@@ -1,5 +1,4 @@
 import tensorflow as tf
-import tensorflow_text as tf_text
 from sklearn.model_selection import train_test_split
 
 from collections import defaultdict
@@ -14,7 +13,6 @@ import os
 import io
 import time
 from datetime import datetime
-import pathlib
 
 from model import (
     Encoder,
@@ -354,6 +352,7 @@ def batching_func(x):
             tf.cast(0, tf.int64),  # targ_in
             tf.cast(0, tf.int64),  # targ_out
         ),
+        drop_remainder=True,
     )  # tgt_len -- unused
 
 
@@ -565,9 +564,15 @@ checkpoint = tf.train.Checkpoint(optimizer=optimizer, encoder=encoder, decoder=d
 # 批次大小（最后一批次较小）导致的再追踪，使用 input_signature 指定
 # 更多的通用形状。
 # 但是这里用 input_signature 并不方便，因为 dec_states 是一个 tuple，很难指定其形状 :)
-@tf.function
+@tf.function(
+    input_signature=(
+        tf.TensorSpec(shape=(BATCH_SIZE, None), dtype=tf.int64),
+        tf.TensorSpec(shape=(BATCH_SIZE, None), dtype=tf.int64),
+        tf.TensorSpec(shape=(BATCH_SIZE, None), dtype=tf.int64),
+    )
+)
 def train_step(inp, targ_in, targ_out):
-    loss = 0
+    loss = 0.0
 
     with tf.GradientTape() as tape:
         enc_output, enc_hidden = encoder(inp)
@@ -575,9 +580,9 @@ def train_step(inp, targ_in, targ_out):
         dec_hidden = enc_hidden
 
         # dec_hidden = None
-        dec_states = decoder.get_initial_state(batch_size=inp.shape[0])
+        dec_states = decoder.get_initial_state(batch_size=tf.shape(inp)[0])
         # 教师强制 - 将目标词作为下一个输入
-        for t in range(targ_in.shape[1]):
+        for t in range(tf.shape(targ_in)[1]):
             # 使用教师强制，第一个词为 [start]
             dec_input = tf.expand_dims(targ_in[:, t], 1)
 
@@ -588,7 +593,7 @@ def train_step(inp, targ_in, targ_out):
 
             loss += loss_function(targ_out[:, t], logits)
 
-    batch_loss = loss / int(targ_in.shape[1])
+    batch_loss = loss / tf.cast(tf.shape(targ_in)[1], tf.float32)
     variables = encoder.trainable_variables + decoder.trainable_variables
     gradients = tape.gradient(loss, variables)
     if grad_clip is not None:
@@ -598,58 +603,76 @@ def train_step(inp, targ_in, targ_out):
     return batch_loss
 
 
-@tf.function
+@tf.function(
+    input_signature=(
+        tf.TensorSpec(shape=(BATCH_SIZE, None), dtype=tf.int64),
+        tf.TensorSpec(shape=(BATCH_SIZE, None), dtype=tf.int64),
+    )
+)
 def evaluate(inp, targ_in):
     enc_out, enc_hidden = encoder(inp, training=False)
 
-    result = []
+    # result = []
+    # https://github.com/tensorflow/tensorflow/issues/39323
+    pred_id_list = tf.TensorArray(tf.int64, size=tf.shape(targ_in)[1])
 
     dec_hidden = enc_hidden
-    dec_states = decoder.get_initial_state(batch_size=inp.shape[0])
+    dec_states = decoder.get_initial_state(batch_size=tf.shape(inp)[0])
     # [batch_size, 1]，第一个词是 [start]
     dec_input = tf.constant(
-        value=target_start_id, shape=(inp.shape[0], 1), dtype=tf.int64
+        value=target_start_id, shape=(BATCH_SIZE, 1), dtype=tf.int64
     )
     # TODO: 这里的长度应该是目标句子长度嘛？
-    for t in range(targ_in.shape[1]):
+    for t in range(tf.shape(targ_in)[1]):
         logits, dec_states, dec_hidden, attention_weights = decoder(
             dec_input, dec_states, enc_out, dec_hidden, training=False
         )
         # [batch,]
         predicted_id = tf.argmax(logits, axis=-1)
         # 记录新产生的词语
-        result.append(predicted_id)
+        # result.append(predicted_id)
+        pred_id_list = pred_id_list.write(t, predicted_id)
         # 预测的 ID 被输送回模型
         # [batch, 1]
         dec_input = tf.expand_dims(predicted_id, -1)
 
-    pred = tf.stack(result, axis=1)
+    # pred = tf.stack(result, axis=1)
+    # [seq_len, batch_size]
+    pred = pred_id_list.stack()
+    # [batch_size, seq_len]
+    pred = tf.transpose(pred)
     return pred
 
 
-# @tf.function
+@tf.function(input_signature=(tf.TensorSpec(shape=(1, None), dtype=tf.int64),))
 def inference(inp):
     enc_out, enc_hidden = encoder(inp, training=False)
 
-    pred_id_list = []
-    weights_list = []
+    # pred_id_list = []
+    # https://github.com/tensorflow/tensorflow/issues/39323
+    pred_id_list = tf.TensorArray(tf.int64, size=0, dynamic_size=True)
+    # weights_list = []
+    weights_list = tf.TensorArray(tf.float32, size=0, dynamic_size=True)
 
     dec_hidden = enc_hidden
 
-    dec_states = decoder.get_initial_state(batch_size=inp.shape[0])
+    dec_states = decoder.get_initial_state(batch_size=1)
     # [batch_size, 1]，第一个词是 [start]
     dec_input = tf.constant(value=target_start_id, shape=(1, 1), dtype=tf.int64)
-    for t in range(max_length_targ):
+    # 这里使用 tf.range 只因为 break 语句只能在 tf.range 中使用
+    for t in tf.range(max_length_targ):
         logits, dec_states, dec_hidden, attention_weights = decoder(
             dec_input, dec_states, enc_out, dec_hidden, training=False
         )
         # [batch,]
         predicted_id = tf.argmax(logits, axis=-1)
         # 记录新产生的词语
-        pred_id_list.append(predicted_id)
+        # pred_id_list.append(predicted_id)
+        pred_id_list = pred_id_list.write(t, predicted_id)
         # [inp_len]
         attention_weights = tf.reshape(attention_weights, (-1,))
-        weights_list.append(attention_weights)
+        # weights_list.append(attention_weights)
+        weights_list = weights_list.write(t, attention_weights)
 
         if tf.equal(
             predicted_id[0],
@@ -661,29 +684,27 @@ def inference(inp):
         # [batch, 1]
         dec_input = tf.expand_dims(predicted_id, -1)
 
-    # [1, max_length_targ]
-    pred = tf.stack(pred_id_list, axis=1)
-    # [max_length_targ]
-    # pred = tf.reshape(pred, (-1,))
+    # [1, batch_size]
+    pred = pred_id_list.stack()
+    # [batch_size, 1]
+    pred = tf.transpose(pred)
     # [max_length_targ, inp_len]
-    weights = tf.stack(weights_list, axis=0)
+    weights = weights_list.stack()
     return pred, weights
 
 
 def translate(sentence):
     sentence = preprocess_sentence(sentence)
+    # 输入必须是列表
     tokens = inp_lang_tokenizer.texts_to_sequences([sentence])
     # print(tokens)
-    inputs = tf.constant(tokens)
+    inputs = tf.constant(tokens, dtype=tf.int64)
     # inputs = tf.expand_dims(inputs, axis=0)
 
     pred, attention_plot = inference(inputs)
 
-    # inputs = tf.squeeze(inputs, axis=0)
-    # context_tokens = context_vocab[inputs]
-    # context = inp_lang_tokenizer.sequences_to_texts(inputs)
-    # pred = tf.squeeze(pred, axis=0)
     pred = targ_lang_tokenizer.sequences_to_texts(pred.numpy())
+    # 批次为 1，只有 1 个元素
     pred = pred[0]
     return pred, sentence, attention_plot
 
@@ -820,8 +841,9 @@ for epoch in range(1, EPOCHS + 1):
 
     # 每 2 个周期（epoch），保存（检查点）一次模型
     if (epoch) % 2 == 0:
-        print("plotting:")
+        print("checkpoint saving:")
         checkpoint.save(file_prefix=os.path.join(checkpoint_dir, f"ckpt-epoch-{epoch}"))
+        print("plotting:")
         plot("¿todavia estan en casa?", prefix=f"epoch-{epoch}-index-1")
         time.sleep(1)
         plot("Esta es mi vida.", prefix=f"epoch-{epoch}-index-2")

@@ -29,3 +29,4 @@ python train.py
 
 - [tf2 教程](https://www.tensorflow.org/text/tutorials/nmt_with_attention)中的 tf.keras.layers.TextVectorization 在 adapt 时非常慢，我不得不换为 tf.keras.preprocessing.text.Tokenizer 进行处理。
 - 模型参考 [https://github.com/OpenNMT/OpenNMT-tf](https://github.com/OpenNMT/OpenNMT-tf) 中的 RNMT+，文章为 [https://arxiv.org/pdf/1804.09849.pdf](https://arxiv.org/pdf/1804.09849.pdf)。
+- 在 tf.function 中，如果输入的类型不是固定的，建议使用 input_signature 解释输入的形状从而避免重追踪，我的理解是 input_signature 可以把 `None` 编译为 `tf.placeholder([None,])`。记得在 tf.function 中计算形状时，不要使用 `inp.shape[0]`，而应该使用 `tf.shape[inp](0)`。

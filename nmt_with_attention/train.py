@@ -268,17 +268,6 @@ context_end_id = tf.constant(inp_lang_tokenizer.word_index["[end]"], dtype=tf.in
 target_start_id = tf.constant(targ_lang_tokenizer.word_index["[start]"], dtype=tf.int64)
 target_end_id = tf.constant(targ_lang_tokenizer.word_index["[end]"], dtype=tf.int64)
 
-# plt.subplot(1, 2, 1)
-# # to_tensor 会把 ragged tensor 按最大长度补零对齐为 tensor
-# plt.pcolormesh(example_context_tokens.to_tensor())
-# plt.title("Token IDs")
-
-# plt.subplot(1, 2, 2)
-# # to_tensor 会把 ragged tensor 补零对齐为 tensor
-# plt.pcolormesh(example_context_tokens.to_tensor() != 0)
-# plt.title("Mask")
-# plt.savefig("mask.png")
-
 
 def process_text(context, target):
     """
@@ -318,7 +307,7 @@ print()
 
 
 max_length_targ = 80
-num_buckets = 4
+num_buckets = 1
 src_max_len = None
 BATCH_SIZE = 128
 steps_per_epoch = train_size // BATCH_SIZE
@@ -332,6 +321,10 @@ lr = 1e-3
 grad_clip = 5.0
 vocab_inp_size = len(inp_lang_tokenizer.word_index) + 1
 vocab_tar_size = len(targ_lang_tokenizer.word_index) + 1
+
+current_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
+checkpoint_dir = f"./training_checkpoints_{current_time}"
+os.makedirs(checkpoint_dir)
 
 
 # Bucket by source sequence length (buckets for lengths 0-9, 10-19, ...)
@@ -437,6 +430,17 @@ print(example_target_out_batch[:3])
 print(targ_lang_tokenizer.sequences_to_texts(example_target_out_batch.numpy())[:3])
 print()
 
+plt.subplot(1, 2, 1)
+# to_tensor 会把 ragged tensor 按最大长度补零对齐为 tensor
+plt.pcolormesh(example_input_batch.numpy())
+plt.title("Token IDs")
+
+plt.subplot(1, 2, 2)
+# to_tensor 会把 ragged tensor 补零对齐为 tensor
+plt.pcolormesh(example_input_batch.numpy() != 0)
+plt.title("Mask")
+plt.savefig(os.path.join(checkpoint_dir, "mask.png"))
+
 max_inp_len = 0
 max_targ_len = 0
 batch_size_dict = defaultdict(int)
@@ -514,6 +518,8 @@ optimizer = tf.keras.optimizers.Adam(lr)
 loss_object = tf.keras.losses.SparseCategoricalCrossentropy(
     from_logits=True, reduction="none"
 )
+checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt")
+checkpoint = tf.train.Checkpoint(optimizer=optimizer, encoder=encoder, decoder=decoder)
 
 
 def loss_function(real, pred):
@@ -553,12 +559,6 @@ def get_bleu(targ, pred):
     pred_split = list(map(split, pred))
     bleu = compute_bleu(reference_corpus=targ_split, translation_corpus=pred_split)
     return 100 * bleu[0]
-
-
-current_time = datetime.now().strftime("%Y-%m-%d_%H-%M-%S")
-checkpoint_dir = f"./training_checkpoints_{current_time}"
-checkpoint_prefix = os.path.join(checkpoint_dir, "ckpt")
-checkpoint = tf.train.Checkpoint(optimizer=optimizer, encoder=encoder, decoder=decoder)
 
 
 # 该 @tf.function 将追踪-编译 train_step 到 TF 图中，以便更快地
